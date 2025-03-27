@@ -33,8 +33,8 @@ class Camera:
         return
 
     def translate(self,x,y,z):
-        self.pos_matrix[3,0] += -x/255
-        self.pos_matrix[3, 1] += y / 255
+        self.pos_matrix[3,0] += -x/400
+        self.pos_matrix[3, 1] += y / 400
         return
 
     def zoom(self,zoom_value):

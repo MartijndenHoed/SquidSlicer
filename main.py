@@ -14,6 +14,7 @@ import os
 import PIL
 from functools import partial
 import components
+import time
 np.set_printoptions(suppress=True)
 
 class RenderGroupTextured(pg.graphics.Group):
@@ -763,6 +764,8 @@ class Circuit_layer():
         self.vias = []
         self.components = []
         self.active_point = None
+        self.active_component = None
+        self.active_component_angle = 0
         self.line_width = sliced_model.slicing_data["trace_width"]
         self.layer = None
         self.layer_size = (self.dims[0][1]-self.dims[0][0],self.dims[1][1]-self.dims[1][0])
@@ -973,36 +976,29 @@ class Circuit_layer():
         layer_coords = self.get_layer_coords(coords)
         if (layer_coords[0] < 0 or layer_coords[1] < 0 or layer_coords[0] > 1 or layer_coords[1] > 1):
             return
-        base = Tk()
-        field_spacing = 40
-        field_y0 = 20
-        base.geometry(f"500x{(len(model.circuit.component_list) + 3) * field_spacing}")
-        base.title("Add electronic component")
 
-        Button(base, text="Cancel", width=10, command=lambda: base.destroy()).place(x=10, y=(
-                                                                                                        len(model.circuit.component_list) + 1) * field_spacing + field_y0)
-        Label(base, text="Enter component angle:",
-              font=("arial", 12)).place(x=10, y=(len(model.circuit.component_list)) * field_spacing + field_y0)
-        enter_angle = Entry(base)
-        enter_angle.place(x=200, y=(len(model.circuit.component_list)) * field_spacing + field_y0)
-        enter_angle.insert(0, 0)
-
-
-        for i, component in enumerate(model.circuit.component_list):
-            Button(base, text=f"{component.display_name()}", width=20,command=partial(self.create_component,component,base,layer_coords,enter_angle)).place(x=10,y=i * field_spacing + field_y0)
-
-
-        base.mainloop()
-        return
-
-    def create_component(self,component,base,layer_coords,enter_angle):
-
-
-        angle = 2*np.pi* float(enter_angle.get()) /360
-        base.destroy()
-        self.components.append(component(layer_coords,angle,self.z_height))
+        angle = self.active_component_angle
+        self.components.append(self.active_component(layer_coords, angle, self.z_height))
         self.generate_layer()
         return
+
+    def remove_component(self,coords):
+        if(self.active_component):
+            self.active_component = None
+            global tracer_preview_img
+            tracer_preview_img = None
+            return
+        layer_coords = self.get_layer_coords(coords)
+        clamping_distance = 0.05
+        if (layer_coords[0] < 0 or layer_coords[1] < 0 or layer_coords[0] > 1 or layer_coords[1] > 1):
+            return
+        for component in self.components:
+            #print(np.sqrt((via.position[0] - layer_coords[0])**2 +(via.position[1] - layer_coords[1])**2 ))
+            if(np.sqrt((component.position[0] - layer_coords[0])**2 +(component.position[1] - layer_coords[1])**2 ) <  clamping_distance):
+                self.components.remove(component)
+        self.generate_layer()
+        return
+
 
 
     def get_layer_coords(self,coords):
@@ -1031,7 +1027,7 @@ class Circuit():
         self.circuit_layers = []
         self.vias = []
 
-        self.component_list = [components.Component_smd_0805,components.Component_smd_0805_larger,components.Component_smd_0805_largest]
+        self.component_list = [components.Component_smd_0805,components.Component_smd_0805_larger,components.Component_smd_0805_largest,components.Component_smd_0805_mega]
     def create_circuit_layer(self,editor=True):
         if(editor):
             global program_state
@@ -1159,6 +1155,7 @@ def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
 @window.event
 def on_resize(width, height):
     window.viewport = (0, 0, width, height)
+    print(window.size)
     #window.projection = pg.math.Mat4.perspective_projection(window.aspect_ratio, z_near=0.01, z_far=255, fov=60)
     #window.projection = pg.math.Mat4.orthogonal_projection(window.aspect_ratio, z_near=0.01, z_far=512,right=-window.aspect_ratio,bottom=-1,top=1)
     return pg.event.EVENT_HANDLED
@@ -1239,7 +1236,13 @@ def on_mouse_motion(x,y,dx,dy):
 
                 tracer_help_shape = pg.shapes.Rectangle(screen_coord[0, 0], screen_coord[0, 1], x-screen_coord[0, 0], y-screen_coord[0, 1], color=color,
                                                   batch=ui_tracer_batch)
-
+        if (tracer_state == "component"):
+            global activate_circuit_layer
+            if(active_circuit_layer.active_component):
+                tracer_preview_img.x = x + tracer_preview_img.width*0.5
+                tracer_preview_img.y = y - tracer_preview_img.height*0.5
+                tracer_preview_img.scale = 0.5*(window.height/ tracer_preview_img.image.height) * (model.dims[2][1]-model.dims[2][0]) * camera.zoom_matrix[0,0]
+                print( 0.25*(window.width/ tracer_preview_img.image.width) * (model.dims[0][1]-model.dims[0][0]) * camera.zoom_matrix[0,0])
 
     pass
 
@@ -1341,17 +1344,17 @@ def setup():
     global tracer_state
     global via_mode
     global tracer_help_shape
+    global tracer_preview_img
     program_state = "slicer"
     tracer_state = "line"
     via_mode = "stairwell"
     tracer_help_shape = None
+    tracer_preview_img = None
 
 
 
 def toggle_tracer():
     if(program_state=="slicer" and model.render_mode=="sliced"):
-
-
         base = Tk()
         base.geometry(f"300x100")
         base.title("Create circuit layer")
@@ -1368,7 +1371,6 @@ def toggle_slicer():
         program_state = "slicer"
         camera.unfix()
         window.set_mouse_cursor(window.get_system_mouse_cursor(window.CURSOR_DEFAULT))
-
         return
 
 def settings_menu():
@@ -1409,10 +1411,41 @@ def add_stairwell_via():
     return
 
 def add_component():
-    global tracer_state
     if (program_state == "tracer"):
-        tracer_state = "component"
-    return
+        global tracer_state
+        base = Tk()
+        field_spacing = 40
+        field_y0 = 20
+        base.geometry(f"500x{(len(model.circuit.component_list) + 3) * field_spacing}")
+        base.title("Add electronic component")
+        Button(base, text="Cancel", width=10, command=lambda: base.destroy()).place(x=10, y=(
+                                                                                                    len(model.circuit.component_list) + 1) * field_spacing + field_y0)
+        Label(base, text="Enter component angle:",
+              font=("arial", 12)).place(x=10, y=(len(model.circuit.component_list)) * field_spacing + field_y0)
+        enter_angle = Entry(base)
+        enter_angle.place(x=200, y=(len(model.circuit.component_list)) * field_spacing + field_y0)
+        enter_angle.insert(0, 0)
+
+        for i, component in enumerate(model.circuit.component_list):
+            Button(base, text=f"{component.display_name()}", width=20,
+                   command=partial(activate_component, component, base, enter_angle)).place(x=10,
+                                                                                                             y=i * field_spacing + field_y0)
+        base.mainloop()
+
+
+def activate_component(component,base,angle):
+    global active_circuit_layer
+    global tracer_state
+    global tracer_preview_img
+    active_circuit_layer.active_component_angle = 2 * np.pi * float(angle.get()) / 360
+    base.destroy()
+    active_circuit_layer.active_component = component
+    tracer_state = "component"
+    dummy_component = component((0.5,0.5),active_circuit_layer.active_component_angle,0)
+    dummy_component_pad_layer_array = dummy_component.generate_pad_layer_array(active_circuit_layer.dims,active_circuit_layer.resolution)
+    dummy_component_pad_layer = Sliced_layer(dummy_component_pad_layer_array.astype(np.uint8),0,1,1,[(180,92,214,155)],dims=active_circuit_layer.dims)
+    tracer_preview_img = pg.sprite.Sprite(dummy_component_pad_layer.tex.get_transform(flip_x=True), 0, 0, batch=ui_tracer_batch)
+
 
 def add_dimple_via():
     global tracer_state
@@ -1444,11 +1477,11 @@ ui_slicer_batch = pg.graphics.Batch()
 ui_tracer_batch = pg.graphics.Batch()
 
 toggle_mode_button2 = ui_setup.create_button(pg,window,"ui_icons/model.png",ui_tracer_batch,toggle_slicer)
-add_line_button = ui_setup.create_button(pg,window,"ui_icons/add_line.png",ui_tracer_batch,add_line)
 add_stairwell_via_button = ui_setup.create_button(pg,window,"ui_icons/add_via.png",ui_tracer_batch,add_stairwell_via)
 add_dimple_via_button = ui_setup.create_button(pg,window,"ui_icons/add_via.png",ui_tracer_batch,add_dimple_via)
 add_pad_button = ui_setup.create_button(pg,window,"ui_icons/add_pad.png",ui_tracer_batch,add_pad)
 add_component_button = ui_setup.create_button(pg,window,"ui_icons/add_component.png",ui_tracer_batch,add_component)
+add_line_button = ui_setup.create_button(pg,window,"ui_icons/add_line.png",ui_tracer_batch,add_line)
 
 plus_button = ui_setup.create_button(pg,window,"ui_icons/plus.png",ui_slicer_batch,add_stl_model,True)
 center_button = ui_setup.create_button(pg,window,"ui_icons/center.png",ui_slicer_batch,center)

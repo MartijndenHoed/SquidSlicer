@@ -78,7 +78,7 @@ class Component_smd_0805(Component):
         self.component_rules = [["x>-1","x<1","y>-0.6","y<0.6"]]
         self.pad_rules = [["x>0.6","x<0.6+1","y>-0.6","y<0.6"],["x<-0.6","x>-0.6-1","y>-0.6","y<0.6"]]
         self.hole_rules = [["y>-0.6","y<0.6","(x-1)<z","(x+1)>-z"]]
-        self.cover_rules = "hallo"
+        self.cover_rules = None
 
         super().__init__(self.position, z_level,self.height, self.component_rules, self.pad_rules, self.hole_rules, self.cover_rules)
 
@@ -93,11 +93,11 @@ class Component_smd_0805_larger(Component):
         self.angle = angle
 
         self.name = self.display_name()
-        self.height = 0.45
+        self.height = 0.6
         self.component_rules = [["x>-1","x<1","y>-0.6","y<0.6"]]
-        self.pad_rules = [["x>0.6","x<0.6+1","y>-0.6","y<0.6"],["x<-0.6","x>-0.6-1","y>-0.6","y<0.6"]]
-        self.hole_rules = [["y>-0.7","y<0.7","(x-1.1)<z","(x+1.1)>-z"]]
-        self.cover_rules = "hallo"
+        self.pad_rules = [["x>0.6","x<0.6+1.4","y>-0.6","y<0.6"],["x<-0.6","x>-0.6-1.4","y>-0.6","y<0.6"]]
+        self.hole_rules = [["y>-0.9","y<0.9","(x-1.3)<z","(x+1.3)>-z"]]
+        self.cover_rules = None
 
         super().__init__(self.position, z_level,self.height, self.component_rules, self.pad_rules, self.hole_rules, self.cover_rules)
 
@@ -112,11 +112,11 @@ class Component_smd_0805_largest(Component):
         self.angle = angle
 
         self.name = self.display_name()
-        self.height = 0.45
+        self.height = 0.6
         self.component_rules = [["x>-1", "x<1", "y>-0.6", "y<0.6"]]
-        self.pad_rules = [["x>0.6", "x<0.6+1", "y>-0.6", "y<0.6"], ["x<-0.6", "x>-0.6-1", "y>-0.6", "y<0.6"]]
-        self.hole_rules = [["y>-0.8", "y<0.8", "(x-1.2)<z", "(x+1.2)>-z"]]
-        self.cover_rules = "hallo"
+        self.pad_rules = [["x>0.6", "x<0.6+1.4", "y>-0.6", "y<0.6"], ["x<-0.6", "x>-0.6-1.4", "y>-0.6", "y<0.6"]]
+        self.hole_rules = [["y>-1.0", "y<1.0", "(x-1.4)<z", "(x+1.4)>-z"]]
+        self.cover_rules = None
 
         super().__init__(self.position, z_level, self.height, self.component_rules, self.pad_rules, self.hole_rules,
                          self.cover_rules)
@@ -124,3 +124,24 @@ class Component_smd_0805_largest(Component):
     @staticmethod
     def display_name():
         return "0805 SMD component (largest)"
+
+
+class Component_smd_0805_mega(Component):
+
+    def __init__(self, position, angle, z_level):
+        self.position = position
+        self.angle = angle
+
+        self.name = self.display_name()
+        self.height = 0.6
+        self.component_rules = [["x>-1", "x<1", "y>-0.6", "y<0.6"]]
+        self.pad_rules = [["x>0.6", "x<0.6+1.4", "y>-0.6", "y<0.6"], ["x<-0.6", "x>-0.6-1.4", "y>-0.6", "y<0.6"]]
+        self.hole_rules = [["y>-1.1", "y<1.1", "(x-1.4)<z", "(x+1.4)>-z"]]
+        self.cover_rules = None
+
+        super().__init__(self.position, z_level, self.height, self.component_rules, self.pad_rules, self.hole_rules,
+                         self.cover_rules)
+
+    @staticmethod
+    def display_name():
+        return "0805 SMD component (mega)"
