@@ -362,7 +362,7 @@ class Object():
 
                             if(not export):
                                 via_fill_layer = Sliced_layer((2*via_fill_layer_arr).astype(np.uint8),z_level-self.slicing_data["layer_height"]*(via_fill_arr.shape[2]-j-1),self.slicing_data["layer_height"],self.slicing_data["sub_renders"]
-                                         ,self.slicing_data["colors"],dims=(self.dims[0],self.dims[2],self.dims[1]),type="struc",print_level=z_level+self.slicing_data["layer_height"])
+                                         ,self.slicing_data["colors"],dims=(self.dims_extended[0],self.dims_extended[2],self.dims_extended[1]),type="struc",print_level=z_level+self.slicing_data["layer_height"])
                                 self.layers.append(via_fill_layer)
 
                         via_fill_top_layer = via_fill_layer_arr
@@ -446,11 +446,11 @@ class Object():
                     if (i > 0):
                         self.layers.append(Sliced_layer((circuit_layer_segment * (self.slicing_data["trace_layer"] + 3)).astype(np.uint8),
                                                         z_level + 0.9 * self.slicing_data["layer_height"], 0.1, self.slicing_data["sub_renders"], self.slicing_data["colors"],
-                                                        dims=(self.dims[0],self.dims[2],self.dims[1]),type="circ",print_level = (circuit_layer_buffer_layer+1) * self.slicing_data["layer_height"]))
+                                                        dims=(self.dims_extended[0],self.dims_extended[2],self.dims_extended[1]),type="circ",print_level = (circuit_layer_buffer_layer+1) * self.slicing_data["layer_height"]))
                     else:
                         self.layers.append(
                             Sliced_layer((circuit_layer * 5).astype(np.uint8), z_level, 0.1, self.slicing_data["sub_renders"], self.slicing_data["colors"],
-                                         dims=(self.dims[0],self.dims[2],self.dims[1]),type="circ",print_level = (circuit_layer_buffer_layer+1) * self.slicing_data["layer_height"]))
+                                         dims=(self.dims_extended[0],self.dims_extended[2],self.dims_extended[1]),type="circ",print_level = (circuit_layer_buffer_layer+1) * self.slicing_data["layer_height"]))
 
 
 
@@ -461,7 +461,7 @@ class Object():
                     self.slicing_data["structural_mask"] = self.generate_support_structural_mask(support_layer_array.shape)
                 support_layer_array = support_layer_array - np.logical_and(support_layer_array,self.slicing_data["structural_mask"])
                 support_layer = Sliced_layer(support_layer_array, z_level, self.slicing_data["layer_height"], self.slicing_data["sub_renders"], self.slicing_data["colors"],
-                                     dims=(self.dims[0],self.dims[2],self.dims[1]),type="supp")
+                                     dims=(self.dims_extended[0],self.dims_extended[2],self.dims_extended[1]),type="supp")
                 self.layers.append(support_layer)
         layer_count * self.slicing_data["layer_height"]
         self.visible=True
@@ -750,7 +750,7 @@ class Circuit_layer():
     def __init__(self,z_height,sliced_model):
         self.sliced_model = sliced_model
         self.resolution = sliced_model.slicing_data["resolution"]
-        self.dims = (sliced_model.dims[0],sliced_model.dims[2],sliced_model.dims[1])
+        self.dims = (sliced_model.dims_extended[0],sliced_model.dims_extended[2],sliced_model.dims_extended[1])
         self.offset = sliced_model.offsets
         self.layer_array = np.zeros((self.resolution[0],self.resolution[1]), dtype=np.uint8)
         if(z_height is not None):
@@ -1242,7 +1242,6 @@ def on_mouse_motion(x,y,dx,dy):
                 tracer_preview_img.x = x + tracer_preview_img.width*0.5
                 tracer_preview_img.y = y - tracer_preview_img.height*0.5
                 tracer_preview_img.scale = 0.5*(window.height/ tracer_preview_img.image.height) * (model.dims[2][1]-model.dims[2][0]) * camera.zoom_matrix[0,0]
-                print( 0.25*(window.width/ tracer_preview_img.image.width) * (model.dims[0][1]-model.dims[0][0]) * camera.zoom_matrix[0,0])
 
     pass
 
@@ -1304,7 +1303,7 @@ def export_slice():
             file_name = asksaveasfilename(filetypes=[("bitmap stack", ".png")])
 
             root.destroy()
-            print(file_name)
+            print(f"Open file: {file_name}")
             if(file_name):
                 model.slicing_data["DPI"] = int(menus_setup.settings["slice_DPI"]["value"])
                 model.slicing_data["layer_height"] = float(menus_setup.settings["slice_layer_height"]["value"])
@@ -1477,8 +1476,8 @@ ui_slicer_batch = pg.graphics.Batch()
 ui_tracer_batch = pg.graphics.Batch()
 
 toggle_mode_button2 = ui_setup.create_button(pg,window,"ui_icons/model.png",ui_tracer_batch,toggle_slicer)
-add_stairwell_via_button = ui_setup.create_button(pg,window,"ui_icons/add_via.png",ui_tracer_batch,add_stairwell_via)
-add_dimple_via_button = ui_setup.create_button(pg,window,"ui_icons/add_via.png",ui_tracer_batch,add_dimple_via)
+add_stairwell_via_button = ui_setup.create_button(pg,window,"ui_icons/add_stairwell_via.png",ui_tracer_batch,add_stairwell_via)
+add_dimple_via_button = ui_setup.create_button(pg,window,"ui_icons/add_dimple_via.png",ui_tracer_batch,add_dimple_via)
 add_pad_button = ui_setup.create_button(pg,window,"ui_icons/add_pad.png",ui_tracer_batch,add_pad)
 add_component_button = ui_setup.create_button(pg,window,"ui_icons/add_component.png",ui_tracer_batch,add_component)
 add_line_button = ui_setup.create_button(pg,window,"ui_icons/add_line.png",ui_tracer_batch,add_line)

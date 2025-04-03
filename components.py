@@ -96,7 +96,7 @@ class Component_smd_0805_larger(Component):
         self.height = 0.6
         self.component_rules = [["x>-1","x<1","y>-0.6","y<0.6"]]
         self.pad_rules = [["x>0.6","x<0.6+1.4","y>-0.6","y<0.6"],["x<-0.6","x>-0.6-1.4","y>-0.6","y<0.6"]]
-        self.hole_rules = [["y>-0.9","y<0.9","(x-1.3)<z","(x+1.3)>-z"]]
+        self.hole_rules = [["y>-0.9","y<0.9","(x-1.0)<z","(x+1.0)>-z"]]
         self.cover_rules = None
 
         super().__init__(self.position, z_level,self.height, self.component_rules, self.pad_rules, self.hole_rules, self.cover_rules)
