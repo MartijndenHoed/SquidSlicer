@@ -2,6 +2,7 @@ import slice_engine as slicer
 import stl
 import pyglet as pg
 import numpy as np
+from scipy import ndimage
 import camera as cam
 import shaders_textured
 import shaders_mono
@@ -14,6 +15,7 @@ import os
 import PIL
 from functools import partial
 import components
+import pickle
 import time
 np.set_printoptions(suppress=True)
 
@@ -91,6 +93,15 @@ class RenderGroupPlain(pg.graphics.Group):
                 self.order == other.order and
                 self.program == other.program and
                 self.parent == other.parent)
+
+class Object_save_template():
+    def __init__(self,model):
+        self.filename = model.filename
+        self.secondary_models = model.secondary_models
+
+        return
+
+
 
 class Object():
     def __init__(self):
@@ -230,6 +241,15 @@ class Object():
             self.layers = []
         mesh = stl.mesh.Mesh.from_file(self.filename)
         secondary_meshes = []
+        if (self.slicing_data["support_generation"]):
+            dims = slicer.get_model_dims_with_support(mesh,1.0)
+            print(dims)
+            print( self.dims_extended)
+            self.dims_extended = ((np.min([self.dims[0][0], dims[0][0]]), np.max([self.dims[0][1], dims[0][1]])),
+                              (np.min([self.dims[1][0], dims[1][0]]), np.max([self.dims[1][1], dims[1][1]])),
+                              (np.min([self.dims[2][0], dims[2][0]]), np.max([self.dims[2][1], dims[2][1]])))
+
+
         for secondary_model in self.secondary_models:
             secondary_meshes.append(stl.mesh.Mesh.from_file(secondary_model))
             secondary_meshes[-1].rotate([0.5,0,0],np.radians(-90))
@@ -242,6 +262,11 @@ class Object():
         self.slicing_data["colors"][3] = self.slicing_data["component_color"]
         self.slicing_data["colors"][4] = self.slicing_data["silver_color"]
         self.slicing_data["trace_layer"] = 1
+
+
+
+
+
         resolution = [int(round(( (self.dims_extended[0][1]-self.dims_extended[0][0]) /25.4)*self.slicing_data["DPI"])),int(round(((self.dims_extended[2][1]-self.dims_extended[2][0])/25.4)*self.slicing_data["DPI"]))]
         layer_count = int((self.dims_extended[1][1]-self.dims_extended[1][0])/self.slicing_data["layer_height"])
         self.slicing_data["resolution"] = (resolution[0], resolution[1], layer_count)
@@ -485,12 +510,29 @@ class Object():
         img_data.save(export_name)
 
     def generate_support_layer(self,layer_array):
+        height_limit = 15
+
         if(self.slicing_data["support_memory"] is None):
-            self.slicing_data["support_memory"] = layer_array
+            self.slicing_data["support_memory"] = layer_array.astype(np.int64)
             return np.zeros((layer_array.shape[0],layer_array.shape[1]))
+
+
+        new_material = np.logical_and(np.logical_not(self.slicing_data["support_memory"]),layer_array)
+        self.slicing_data["support_memory"][self.slicing_data["support_memory"] != 0] += 1
+        np.copyto(self.slicing_data["support_memory"],new_material,where=(new_material==True))
+
+
+        mask = (self.slicing_data["support_memory"] == height_limit)
+
+        # Step 2: Dilate the mask
+        inflated_mask = ndimage.binary_dilation(mask)
+        np.copyto(self.slicing_data["support_memory"], inflated_mask, where=(self.slicing_data["support_memory"] == 0))
+
+        #support_layer = (self.slicing_data["support_memory"]!=0).astype(np.uint8)
+        #print(self.slicing_data["support_memory"])
         support_layer =  np.logical_xor(self.slicing_data["support_memory"],layer_array) * np.logical_not(layer_array)
-        self.slicing_data["support_memory"] = np.logical_or(self.slicing_data["support_memory"],support_layer)
-        self.slicing_data["support_memory"] = np.logical_or(self.slicing_data["support_memory"], layer_array)
+        #self.slicing_data["support_memory"] = np.logical_or(self.slicing_data["support_memory"],support_layer)
+        #self.slicing_data["support_memory"] = np.logical_or(self.slicing_data["support_memory"], layer_array)
         return support_layer.astype(np.uint8)
 
     def generate_support_structural_mask(self,shape):
