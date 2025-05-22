@@ -174,15 +174,8 @@ def get_model_dims_with_support(mesh,support_slope):
     model_max_y = np.max((np.max(mesh.v0[:, 1]), np.max(mesh.v1[:, 1]), np.max(mesh.v2[:, 1])))
     model_min_y = np.min((np.min(mesh.v0[:, 1]), np.min(mesh.v1[:, 1]), np.min(mesh.v2[:, 1])))
 
-    bruh1 = mesh.v0[:, 1]
-    bruh2 = mesh.v0[:, 1]-model_min_y
-    bruh3 = (mesh.v0[:, 1]-model_min_y)/support_slope
-
     model_max_x = np.max( (np.max(mesh.v0[:, 0]    +  (mesh.v0[:, 1]-model_min_y)/support_slope  ) , np.max(mesh.v0[:, 0]    -  (mesh.v0[:, 1]-model_min_y)/support_slope  )   )  )
     model_min_x = np.min( ( np.min(mesh.v0[:, 0]    +  (mesh.v0[:, 1]-model_min_y)/support_slope  ) , np.min(mesh.v0[:, 0]    - (mesh.v0[:, 1]-model_min_y)/support_slope  )  )   )
-
-    bruh4 = mesh.v0[:, 0]    +  (mesh.v0[:, 1]-model_min_y)/support_slope
-    bruh5 = mesh.v0[:, 0]    -  (mesh.v0[:, 1]-model_min_y)/support_slope
 
     model_max_z = np.max( ( np.max(mesh.v0[:, 2]    +  (mesh.v0[:, 1]-model_min_y)/support_slope  ) , np.max(mesh.v0[:, 2]    - (mesh.v0[:, 1]-model_min_y)/support_slope  )  )   )
     model_min_z = np.min( ( np.min(mesh.v0[:, 2]    +  (mesh.v0[:, 1]-model_min_y)/support_slope  ) , np.min(mesh.v0[:, 2]    -  (mesh.v0[:, 1]-model_min_y)/support_slope  )   )  )

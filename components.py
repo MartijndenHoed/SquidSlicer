@@ -1,9 +1,10 @@
 import numpy as np
 
 class Component:
-    def __init__(self,position, z_level, height, component_rules, pad_rules, hole_rules, cover_rules):
+    def __init__(self,position, z_level, height, buried, component_rules, pad_rules, hole_rules, cover_rules):
         self.position = position
         self.actual_z_level = 0
+        self.buried = buried
         self.parent_z_level = z_level
         self.slicing_activated = False
         self.height = height
@@ -75,12 +76,13 @@ class Component_smd_0805(Component):
 
         self.name = self.display_name()
         self.height = 0.45
+        self.buried = True
         self.component_rules = [["x>-1","x<1","y>-0.6","y<0.6"]]
         self.pad_rules = [["x>0.6","x<0.6+1","y>-0.6","y<0.6"],["x<-0.6","x>-0.6-1","y>-0.6","y<0.6"]]
         self.hole_rules = [["y>-0.6","y<0.6","(x-1)<z","(x+1)>-z"]]
         self.cover_rules = None
 
-        super().__init__(self.position, z_level,self.height, self.component_rules, self.pad_rules, self.hole_rules, self.cover_rules)
+        super().__init__(self.position, z_level,self.height,  self.buried,self.component_rules, self.pad_rules, self.hole_rules, self.cover_rules)
 
     @staticmethod
     def display_name():
@@ -94,12 +96,13 @@ class Component_smd_0805_larger(Component):
 
         self.name = self.display_name()
         self.height = 0.6
+        self.buried = True
         self.component_rules = [["x>-1","x<1","y>-0.6","y<0.6"]]
         self.pad_rules = [["x>0.6","x<0.6+1.4","y>-0.6","y<0.6"],["x<-0.6","x>-0.6-1.4","y>-0.6","y<0.6"]]
         self.hole_rules = [["y>-0.9","y<0.9","(x-1.0)<z","(x+1.0)>-z"]]
         self.cover_rules = None
 
-        super().__init__(self.position, z_level,self.height, self.component_rules, self.pad_rules, self.hole_rules, self.cover_rules)
+        super().__init__(self.position, z_level,self.height, self.buried, self.component_rules, self.pad_rules, self.hole_rules, self.cover_rules)
 
     @staticmethod
     def display_name():
@@ -113,12 +116,13 @@ class Component_smd_0805_largest(Component):
 
         self.name = self.display_name()
         self.height = 0.6
+        self.buried = True
         self.component_rules = [["x>-1", "x<1", "y>-0.6", "y<0.6"]]
         self.pad_rules = [["x>0.6", "x<0.6+1.4", "y>-0.6", "y<0.6"], ["x<-0.6", "x>-0.6-1.4", "y>-0.6", "y<0.6"]]
         self.hole_rules = [["y>-1.0", "y<1.0", "(x-1.4)<z", "(x+1.4)>-z"]]
         self.cover_rules = None
 
-        super().__init__(self.position, z_level, self.height, self.component_rules, self.pad_rules, self.hole_rules,
+        super().__init__(self.position, z_level, self.height, self.buried,self.component_rules, self.pad_rules, self.hole_rules,
                          self.cover_rules)
 
     @staticmethod
@@ -126,7 +130,7 @@ class Component_smd_0805_largest(Component):
         return "0805 SMD component (largest)"
 
 
-class Component_smd_0805_mega(Component):
+class Component_smd_0805_buried(Component):
 
     def __init__(self, position, angle, z_level):
         self.position = position
@@ -134,14 +138,88 @@ class Component_smd_0805_mega(Component):
 
         self.name = self.display_name()
         self.height = 0.6
+        self.buried = True
         self.component_rules = [["x>-1", "x<1", "y>-0.6", "y<0.6"]]
         self.pad_rules = [["x>0.6", "x<0.6+1.4", "y>-0.6", "y<0.6"], ["x<-0.6", "x>-0.6-1.4", "y>-0.6", "y<0.6"]]
         self.hole_rules = [["y>-1.1", "y<1.1", "(x-1.4)<z", "(x+1.4)>-z"]]
         self.cover_rules = None
 
-        super().__init__(self.position, z_level, self.height, self.component_rules, self.pad_rules, self.hole_rules,
+        super().__init__(self.position, z_level, self.height, self.buried, self.component_rules, self.pad_rules, self.hole_rules,
                          self.cover_rules)
 
     @staticmethod
     def display_name():
-        return "0805 SMD component (mega)"
+        return "0805 SMD component (buried)"
+
+class Component_smd_0805_non_buried(Component):
+
+    def __init__(self, position, angle, z_level):
+        self.position = position
+        self.angle = angle
+
+        self.name = self.display_name()
+        self.height = 0.6
+        self.buried = False
+        self.component_rules = [["x>-1", "x<1", "y>-0.6", "y<0.6"]]
+        self.pad_rules = [["x>0.6", "x<0.6+1.4", "y>-0.6", "y<0.6"], ["x<-0.6", "x>-0.6-1.4", "y>-0.6", "y<0.6"]]
+        self.hole_rules = [["x>-1", "x<1", "y>-0.6", "y<0.6"]]
+        self.cover_rules = None
+
+        super().__init__(self.position, z_level, self.height, self.buried, self.component_rules, self.pad_rules, self.hole_rules,
+                         self.cover_rules)
+
+    @staticmethod
+    def display_name():
+        return "0805 SMD component (non-buried)"
+
+class Component_pad_4x4_open(Component):
+
+    def __init__(self, position, angle, z_level):
+        self.position = position
+        self.angle = angle
+
+        self.name = self.display_name()
+        self.height = 100
+        self.buried = False
+        self.component_rules = [[]]
+        self.pad_rules = [["x>-2", "x<2", "y>-2", "y<2"]]
+        self.hole_rules = [["x>-2", "x<2", "y>-2", "y<2"]]
+        self.cover_rules = None
+
+        super().__init__(self.position, z_level, self.height, self.buried, self.component_rules, self.pad_rules, self.hole_rules,
+                         self.cover_rules)
+
+    @staticmethod
+    def display_name():
+        return "4x4 pad (exposed)"
+
+
+class Component_ATtiny85(Component):
+
+    def __init__(self, position, angle, z_level):
+        self.position = position
+        self.angle = angle
+
+        self.name = self.display_name()
+        self.height = 1.75
+        self.buried = False
+        self.component_rules = [["x>-5.18/2", "x<5.18/2", "y>-5.13/2", "y<5.13/2"]]
+        self.pad_rules = [["x>-0.32 - 1.5*1.27", "x<0.32 - 1.5*1.27", "y>-0.65 - 0.5*8.255", "y<0.65 - 0.5*8.255"],
+                          ["x>-0.32 - 0.5*1.27", "x<0.32 - 0.5*1.27", "y>-0.65 - 0.5*8.255", "y<0.65 - 0.5*8.255"],
+                          ["x>-0.32 + 1.5*1.27", "x<0.32 + 1.5*1.27", "y>-0.65 - 0.5*8.255", "y<0.65 - 0.5*8.255"],
+                          ["x>-0.32 + 0.5*1.27", "x<0.32 + 0.5*1.27", "y>-0.65 - 0.5*8.255", "y<0.65 - 0.5*8.255"],
+                          ["x>-0.32 - 1.5*1.27", "x<0.32 - 1.5*1.27", "y>-0.65 + 0.5*8.255", "y<0.65 + 0.5*8.255"],
+                          ["x>-0.32 - 0.5*1.27", "x<0.32 - 0.5*1.27", "y>-0.65 + 0.5*8.255", "y<0.65 + 0.5*8.255"],
+                          ["x>-0.32 + 1.5*1.27", "x<0.32 + 1.5*1.27", "y>-0.65 + 0.5*8.255", "y<0.65 + 0.5*8.255"],
+                          ["x>-0.32 + 0.5*1.27", "x<0.32 + 0.5*1.27", "y>-0.65 + 0.5*8.255", "y<0.65 + 0.5*8.255"],
+                          ]
+        self.hole_rules = [["y<2.85", "y>-2.85", "x<2.75 ", "x>-2.75"]]
+        self.cover_rules = None
+
+        super().__init__(self.position, z_level, self.height, self.buried,self.component_rules, self.pad_rules, self.hole_rules,
+                         self.cover_rules)
+
+    @staticmethod
+    
+    def display_name():
+        return "ATtiny85"
