@@ -1,3 +1,6 @@
+#This program was developed by Martijn den Hoed in the period of September 2024 to June 2025 to obtain a Master degree at the Delft technical university
+#Most of the main slicing algorithm is documented, most of the other functions.
+#In case you're interested in using or modifying (parts of) this code, feel free to contact me
 import slice_engine as slicer
 import stl
 import pyglet as pg
@@ -130,12 +133,12 @@ class Object():
             "layer_height": 0,
             "sub_renders": 10,
             "DPI": 0,
-            "base_color": (40, 255, 180, 0),
+            "base_color": (255, 180, 0,40), #render edit2
  #           "secondary_color": (20, 255, 127, 42),
-            "secondary_color": (40, 255, 180, 0), #render edit
-            "silver_color":  (255, 200, 200, 200),
-            "component_color": (255,30,30,30),
-            "support_color": (15,50,200,200),
+            "secondary_color": (255, 180, 0,40), #render edit
+            "silver_color":  (200, 200, 200,255),
+            "component_color": (30,30,30,255),
+            "support_color": (50,200,200,15),
             "support_generation": False,
             "trace_slicing": False,
             "trace_width": 1,
@@ -554,9 +557,6 @@ class Object():
 
         self.activelayer_height =  model.layers[-1].z_level + model.slicing_data["layer_height"]
         window.set_mouse_cursor(window.get_system_mouse_cursor(window.CURSOR_DEFAULT))
-        for circuit_layer in self.circuit.circuit_layers:
-            for component in circuit_layer.components:
-                print(json.dumps(component.__dict__))
         return
 
     def export_layer(self,export_name,layer_array,UV_offset=0):
@@ -622,7 +622,7 @@ class Object():
                          self.offsets[2]))
         if(self.render_mode=="stl" and self.visible):
             pg.gl.glEnable(pg.gl.GL_DEPTH_TEST)
-            mono_shader_program['color_in'] = (self.slicing_data["base_color"][1]/255.0,self.slicing_data["base_color"][2]/255.0,self.slicing_data["base_color"][3]/255.0)
+            mono_shader_program['color_in'] = (self.slicing_data["base_color"][0]/255.0,self.slicing_data["base_color"][1]/255.0,self.slicing_data["base_color"][2]/255.0)
             plate_batch.draw()
             self.batch_stl.draw()
 
@@ -633,8 +633,8 @@ class Object():
             #pg.gl.glPolygonMode(pg.gl.GL_FRONT_AND_BACK, pg.gl.GL_FILL)
 
             mono_shader_program['color_in'] = (
-                self.slicing_data["secondary_color"][1] / 255.0, self.slicing_data["secondary_color"][2] / 255.0,
-                self.slicing_data["secondary_color"][3] / 255.0)
+                self.slicing_data["secondary_color"][0] / 255.0, self.slicing_data["secondary_color"][1] / 255.0,
+                self.slicing_data["secondary_color"][2] / 255.0)
             for batch in self.secondary_stl_batches:
                 batch.draw()
             pg.gl.glDisable(pg.gl.GL_DEPTH_TEST)
@@ -711,7 +711,7 @@ class Sliced_layer():
         for i in uniques:
             layer_mask = (self.data == i)
             layer_texture += (np.kron(layer_mask.T, np.array(self.colors[i - 1], dtype=np.uint8))).flatten()
-        image.set_data("ARGB", self.data.shape[0] * 4, layer_texture)
+        image.set_data("RGBA", self.data.shape[0] * 4, layer_texture.tobytes())
 
         return image.get_texture()
 
@@ -980,7 +980,7 @@ class Circuit_layer():
 
         if(render):
             #self.layer = Sliced_layer(self.layer_array,self.z_height,0.01,5,[(255,150,150,150)],offset=(self.offset[0],self.offset[2],0),dims=self.dims)
-            self.layer = Sliced_layer(self.layer_array, self.z_height, 0.01, 5, [self.sliced_model.slicing_data["silver_color"],(255, 255, 150, 150)], dims=self.dims) #render_edit
+            self.layer = Sliced_layer(self.layer_array, self.z_height, 0.01, 5, [self.sliced_model.slicing_data["silver_color"],(255, 150, 150,255)], dims=self.dims) #render_edit
         return
 
     def function_layer_array(self, rules,resolution):
@@ -1403,6 +1403,7 @@ def load_plate_model():
     plate_batch = pg.graphics.Batch()
     plate_RenderGroup = RenderGroupTextured(plate_tex, texture_shader_program,True)
     vertices = [100,0,100,-100,0,100,100,0,-100,-100,0,-100]
+    #vertices = [50, 0, 50, -50, 0, 50, 50, 0, -50, -50, 0, -50] #render edit
     indices = [1, 2, 0, 1, 3, 2]
     vertex_list = texture_shader_program.vertex_list_indexed(len(vertices) // 3, pg.gl.GL_TRIANGLES, indices, plate_batch, plate_RenderGroup,
                                              position=('f', vertices),
@@ -1441,9 +1442,11 @@ def render_slice():
             model.slicing_data["support_spacing"] = int(menus_setup.settings["support_spacing"]["value"])
             model.slicing_data["traces_print_height"] = float(menus_setup.settings["traces_print_height"]["value"])
             model.slicing_data["trace_width"] = float(menus_setup.settings["trace_width"]["value"])
-            model.slicing_data["secondary_color"] = (
-            int(menus_setup.settings["sec_struc_transparancy"]["value"]), model.slicing_data["secondary_color"][1],
-            model.slicing_data["secondary_color"][2], model.slicing_data["secondary_color"][3])
+            model.slicing_data["secondary_color"] = (model.slicing_data["secondary_color"][0],
+            model.slicing_data["secondary_color"][1], model.slicing_data["secondary_color"][2],int(menus_setup.settings["sec_struc_transparancy"]["value"]))
+
+           # model.slicing_data["base_color"] = (model.slicing_data["base_color"][0],
+            #model.slicing_data["base_color"][1], model.slicing_data["base_color"][2],int(menus_setup.settings["sec_struc_transparancy"]["value"])) #render edit
 
             model.slice(export=False)
         return
@@ -1596,7 +1599,7 @@ def activate_component(component,base,angle):
     tracer_state = "component"
     dummy_component = component((0.5,0.5),active_circuit_layer.active_component_angle,0)
     dummy_component_pad_layer_array = dummy_component.generate_pad_layer_array(active_circuit_layer.dims,active_circuit_layer.resolution)
-    dummy_component_pad_layer = Sliced_layer(dummy_component_pad_layer_array.astype(np.uint8),0,1,1,[(180,92,214,155)],dims=active_circuit_layer.dims)
+    dummy_component_pad_layer = Sliced_layer(dummy_component_pad_layer_array.astype(np.uint8),0,1,1,[(92,214,155,180)],dims=active_circuit_layer.dims)
     tracer_preview_img = pg.sprite.Sprite(dummy_component_pad_layer.tex.get_transform(flip_x=True), 0, 0, batch=ui_tracer_batch)
 
 
