@@ -25,7 +25,7 @@ settings = {"render_DPI": {"value":200,
                             "entry_field":None,
                             "label_field":None
                         },
-            "slice_layer_height": {"value":0.008,
+            "slice_layer_height": {"value":0.005,
                            "changeable":True,
                             "type":"String",
                            "display_name":"Slice Layer Height",

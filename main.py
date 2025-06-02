@@ -1,7 +1,11 @@
+#This program was developed by Martijn den Hoed in the period of September 2024 to June 2025 to obtain a Master degree at the Delft technical university
+#Most of the main slicing algorithm is documented, most of the other functions.
+#In case you're interested in using or modifying (parts of) this code, feel free to contact me
 import slice_engine as slicer
 import stl
 import pyglet as pg
 import numpy as np
+from scipy import ndimage
 import camera as cam
 import shaders_textured
 import shaders_mono
@@ -14,8 +18,10 @@ import os
 import PIL
 from functools import partial
 import components
+import pickle
 import time
 np.set_printoptions(suppress=True)
+import json
 
 class RenderGroupTextured(pg.graphics.Group):
     def __init__(self, texture, program,sharp=False, order=0, parent=None):
@@ -92,6 +98,15 @@ class RenderGroupPlain(pg.graphics.Group):
                 self.program == other.program and
                 self.parent == other.parent)
 
+class Object_save_template():
+    def __init__(self,model):
+        self.filename = model.filename
+        self.secondary_models = model.secondary_models
+
+        return
+
+
+
 class Object():
     def __init__(self):
         self.filename = ""
@@ -118,11 +133,12 @@ class Object():
             "layer_height": 0,
             "sub_renders": 10,
             "DPI": 0,
-            "base_color": (40, 255, 180, 0),
-            "secondary_color": (20, 255, 200, 0),
-            "silver_color":  (255, 200, 200, 200),
-            "component_color": (255,30,30,30),
-            "support_color": (15,50,200,200),
+            "base_color": (255, 180, 0,40), #render edit2
+ #           "secondary_color": (20, 255, 127, 42),
+            "secondary_color": (255, 180, 0,40), #render edit
+            "silver_color":  (200, 200, 200,255),
+            "component_color": (30,30,30,255),
+            "support_color": (50,200,200,15),
             "support_generation": False,
             "trace_slicing": False,
             "trace_width": 1,
@@ -142,6 +158,8 @@ class Object():
         self.visible = False
         self.render_mode = "stl"
         self.dims = ((0, 0), (0, 0), (0, 0))
+        self.dims_extended = ((0, 0), (0, 0), (0, 0))
+        self.secondary_models_dims = []
         self.offsets = (0, 0, 0)
         self.activelayer_height = 0
         self.layers = []
@@ -230,6 +248,15 @@ class Object():
             self.layers = []
         mesh = stl.mesh.Mesh.from_file(self.filename)
         secondary_meshes = []
+        if (self.slicing_data["support_generation"]):
+            dims = slicer.get_model_dims_with_support(mesh,1.0)
+            print(dims)
+            print( self.dims_extended)
+            self.dims_extended = ((np.min([self.dims[0][0], dims[0][0]]), np.max([self.dims[0][1], dims[0][1]])),
+                              (np.min([self.dims[1][0], dims[1][0]]), np.max([self.dims[1][1], dims[1][1]])),
+                              (np.min([self.dims[2][0], dims[2][0]]), np.max([self.dims[2][1], dims[2][1]])))
+
+
         for secondary_model in self.secondary_models:
             secondary_meshes.append(stl.mesh.Mesh.from_file(secondary_model))
             secondary_meshes[-1].rotate([0.5,0,0],np.radians(-90))
@@ -242,6 +269,11 @@ class Object():
         self.slicing_data["colors"][3] = self.slicing_data["component_color"]
         self.slicing_data["colors"][4] = self.slicing_data["silver_color"]
         self.slicing_data["trace_layer"] = 1
+
+
+
+
+
         resolution = [int(round(( (self.dims_extended[0][1]-self.dims_extended[0][0]) /25.4)*self.slicing_data["DPI"])),int(round(((self.dims_extended[2][1]-self.dims_extended[2][0])/25.4)*self.slicing_data["DPI"]))]
         layer_count = int((self.dims_extended[1][1]-self.dims_extended[1][0])/self.slicing_data["layer_height"])
         self.slicing_data["resolution"] = (resolution[0], resolution[1], layer_count)
@@ -278,41 +310,56 @@ class Object():
         for i in reversed(range(0,layer_count)): #slice from top to bottom
             print(f"Slicing: {int(100*(1-i/layer_count))}%")
             z_level = self.slicing_data["layer_height"] * i + 0.5*self.slicing_data["layer_height"] #slice the middle of the layer
-            layer_array = np.zeros(resolution)
-            layer_array_main = slicer.slice_model_2d(mesh,z_level+self.dims_extended[1][0],self.slicing_data["DPI"])
-            layer_array_secondaries = []
 
+            layer_array = np.zeros(resolution) #layer_array is the array where the current layer data is to be stored
 
-            main_model_layer_offset = (((np.asarray((self.dims_extended[0][1]-self.dims[0][1],self.dims_extended[2][1]-self.dims[2][1]))/25.4)*self.slicing_data["DPI"])).astype(np.int64)
-            np.copyto(layer_array[main_model_layer_offset[0]:main_model_layer_offset[0]+layer_array_main.shape[0],main_model_layer_offset[1]:main_model_layer_offset[1]+layer_array_main.shape[1]],layer_array_main,where=(layer_array_main!=0))
+            layer_array_main = slicer.slice_model_2d(mesh,z_level+self.dims_extended[1][0],self.slicing_data["DPI"]) #this is the layer array of only the main part (for sandwich slicing)
+            layer_array_secondaries = [] #these are the layer arrays of the secondary parts (for sandwich slicing)
 
-            if(sandwich_slicing_mode=="combined" and z_level<sandwich_mode_top): #stop combining secondary  models when we reach the sandwiched circuit, slice the rest of the secondary models as via fills
-                lowest_point_secondary_model = self.dims_extended[1][1]
+            main_model_layer_offset = (((np.asarray((self.dims_extended[0][1]-self.dims[0][1],self.dims_extended[2][1]-self.dims[2][1]))/25.4)*self.slicing_data["DPI"])).astype(np.int64) #calculate the position of the main part in the full object
+            np.copyto(layer_array[main_model_layer_offset[0]:main_model_layer_offset[0]+layer_array_main.shape[0],main_model_layer_offset[1]:main_model_layer_offset[1]+layer_array_main.shape[1]],layer_array_main,where=(layer_array_main!=0)) #copy the layer array of the main part into the full object
+
+            if(sandwich_slicing_mode=="combined" and z_level<sandwich_mode_top): #Check if we are in combined mode but below the top of the sandwiched circuit layer
+                sandwich_slicing_mode = "separated" #stop combining secondary  models when we reach the sandwiched circuit, slice the rest of the secondary models as fillup layers
+
+                lowest_point_secondary_model = self.dims_extended[1][1] #Check what the lowest point is of all secondary parts, so we can slice only up until the lowest part
                 for secondary_model_dims in self.secondary_models_dims:
                     lowest_point_secondary_model = np.min((lowest_point_secondary_model,secondary_model_dims[1][0]))
-                sandwich_slicing_mode = "seperated"
-                for l in reversed(range(int((lowest_point_secondary_model-self.dims_extended[1][0])/self.slicing_data["layer_height"]),i+1)):
-                    z_level_new = self.slicing_data["layer_height"] * l + 0.5*self.slicing_data["layer_height"]
-                    layer_array_new = np.zeros(resolution)
+
+
+                for l in reversed(range(int((lowest_point_secondary_model-self.dims_extended[1][0])/self.slicing_data["layer_height"]),i+1)): #loop through the remaining section of the secondary parts that are to be printed seperately
+                    #This is the subroutinge for slicing the layers of the secondary parts that are printed seperately (over the sandwiched circuit layer)
+                    z_level_new = self.slicing_data["layer_height"] * l + 0.5*self.slicing_data["layer_height"] #Determine the z-level of the current layer
+                    layer_array_new = np.zeros(resolution) #Temporary new layer array for this subroutine
                     layer_array_secondaries = []
+
+                    #This part loops through all secondary parts, slices them at the current level, and places them in the current layer array
                     for k in range(0, len(self.secondary_models)):
                         layer_array_secondaries.append(
                             slicer.slice_model_2d(secondary_meshes[k], z_level_new + self.dims_extended[1][0],
-                                                  self.slicing_data["DPI"]))
+                                                  self.slicing_data["DPI"])) #Slice the secondary part
+
+                        # secondary_model_layer_offset = (((np.asarray(
+                        #     (self.dims_extended[0][0] - self.secondary_models_dims[k][0][0],
+                        #      self.dims_extended[2][1] - self.secondary_models_dims[k][2][1])) / 25.4) *
+                        #                                  self.slicing_data["DPI"])).astype(np.int64) #Calculate where in the layer array the secondary part is placed
                         secondary_model_layer_offset = (((np.asarray(
-                            (self.dims_extended[0][1] - self.secondary_models_dims[k][0][1],
-                             self.dims_extended[2][1] - self.secondary_models_dims[k][2][1])) / 25.4) *
+                            (self.secondary_models_dims[k][0][0] - self.dims_extended[0][0],
+                             self.secondary_models_dims[k][2][1] - self.dims_extended[2][1])) / 25.4) *
                                                          self.slicing_data["DPI"])).astype(np.int64)
+
 
                         np.copyto(layer_array_new[secondary_model_layer_offset[0]:secondary_model_layer_offset[0] +
                                                                               layer_array_secondaries[k].shape[0],
                                   secondary_model_layer_offset[1]:secondary_model_layer_offset[1] +
                                                                   layer_array_secondaries[k].shape[1]],
-                                  2 * layer_array_secondaries[k], where=(layer_array_secondaries[k] != 0))
+                                  2 * layer_array_secondaries[k], where=(layer_array_secondaries[k] != 0)) #Place the sliced secondary part in the layer array, at the correct position
 
                     print_level = z_level + self.slicing_data["layer_height"] - self.slicing_data[
                         "traces_print_height"] * np.floor(
-                        ((sandwich_mode_top - (z_level_new)) / self.slicing_data["traces_print_height"]))
+                        ((sandwich_mode_top - (z_level_new)) / self.slicing_data["traces_print_height"])) #Determine the printheight of the current layer. As this is a fillup layer, it needs to be checked if the jetting height is not too high. If that's the case, it is printed in mutiple steps
+
+                    #Render the layer if we're not in export mode
                     if (export == False):
                         layer = Sliced_layer(layer_array_new.astype(np.uint8), z_level_new, self.slicing_data["layer_height"],
                                              self.slicing_data["sub_renders"]
@@ -320,84 +367,115 @@ class Object():
                                              dims=(self.dims_extended[0], self.dims_extended[2], self.dims_extended[1]),
                                              type="struc",print_level=print_level)
                         self.layers.append(layer)
+
+                    #Export the layer if we're in export mode. The name contains the index of the fillup layer, and the layer at which it should be printed
                     if(export):
                         print_layer = int(print_level/self.slicing_data["layer_height"])
                         self.export_layer(str(export) + f"/strucfill_{print_layer}_{l-int((lowest_point_secondary_model-self.dims_extended[1][0])/self.slicing_data['layer_height'])}.png",layer_array_new,UV_offset=self.slicing_data["printhead_UV_offset"])
 
+            #If we don't have to seperate the secondary parts from the main part, we can just combine them into the same layer array; this is 'combined' mode
             if(sandwich_slicing_mode=="combined"):
+                #Loop through all secondary parts, slice them, and add them to the current layer array:
                 for k in range(0,len(self.secondary_models)):
-                    layer_array_secondaries.append( slicer.slice_model_2d(secondary_meshes[k],z_level+self.dims_extended[1][0],self.slicing_data["DPI"]) )
+                    layer_array_secondaries.append( slicer.slice_model_2d(secondary_meshes[k],z_level+self.dims_extended[1][0],self.slicing_data["DPI"]) ) #Slice the secondary part layer
                     secondary_model_layer_offset = (((np.asarray(
-                        (self.dims_extended[0][1] - self.secondary_models_dims[k][0][1], self.dims_extended[2][1] - self.secondary_models_dims[k][2][1])) / 25.4) *
-                                               self.slicing_data["DPI"])).astype(np.int64)
-
+                        (self.secondary_models_dims[k][0][0]-self.dims_extended[0][0], self.secondary_models_dims[k][2][1]-self.dims_extended[2][1])) / 25.4) *
+                                               self.slicing_data["DPI"])).astype(np.int64) #Calculate where in the layer array the secondary part layer should be
                     np.copyto(layer_array[secondary_model_layer_offset[0]:secondary_model_layer_offset[0] + layer_array_secondaries[k].shape[0],
                           secondary_model_layer_offset[1]:secondary_model_layer_offset[1] + layer_array_secondaries[k].shape[1]],
-                          2*layer_array_secondaries[k], where=(layer_array_secondaries[k] != 0))
+                          layer_array_secondaries[k], where=(layer_array_secondaries[k] != 0)) #Copy the sliced layer into the layer array
 
 
 
             via_fill_top_layer = None #this indicates if the top of a via fill is present in the layer
-            for via in self.circuit.vias:
-                if( not via.generate_structure_layer(z_level,self.slicing_data["DPI"]) is None):
-                    via_layer = via.generate_structure_layer(z_level,self.slicing_data["DPI"])
-                    via_pos = (int(via.position[0] * resolution[0]),int(via.position[1] * resolution[1]))
-                    via_width = int(np.round(0.5*via_layer.shape[0]))
+            for via in self.circuit.vias: #Loop through all vias
+                if( not via.generate_structure_layer(z_level,self.slicing_data["DPI"]) is None): #Check if the via is present in the current layer
+
+                    via_layer = via.generate_structure_layer(z_level,self.slicing_data["DPI"]) #Generate the (slice of the) via structure
+                    via_pos = (int(via.position[0] * resolution[0]),int(via.position[1] * resolution[1])) #determine the position of the via in the layer array
+                    via_width = int(np.round(0.5*via_layer.shape[0])) #calculate the width and length of the via structure (in terms of pixels)
                     via_length = int(np.round(0.5*via_layer.shape[1]))
 
-                    #layer_array[via_pos[0]-via_width:via_pos[0]-via_width+via_layer.shape[0],via_pos[1]-via_length:via_pos[1]-via_length+via_layer.shape[1]] =layer_array[via_pos[0]-via_width:via_pos[0]-via_width+via_layer.shape[0],via_pos[1]-via_length:via_pos[1]-via_length+via_layer.shape[1]]+ (2*via_layer).astype(np.uint8)
-                    layer_array[via_pos[0]-via_width:via_pos[0]-via_width+via_layer.shape[0],via_pos[1]-via_length:via_pos[1]-via_length+via_layer.shape[1]] = (via_layer).astype(np.uint8)
+                    start_row = via_pos[0] - via_width #Calculate at which indices the via should be placed in the layer array
+                    start_col = via_pos[1] - via_length
+                    end_row = start_row + via_layer.shape[0]
+                    end_col = start_col + via_layer.shape[1]
 
+                    clip_start_row = max(start_row, 0) #Clip these indices if the via is at the edge of the object
+                    clip_start_col = max(start_col, 0)
+                    clip_end_row = min(end_row, layer_array.shape[0])
+                    clip_end_col = min(end_col, layer_array.shape[1])
 
-                    if(via.new_step_flag):
-                        via_fill_arr = via.generate_via_fill(z_level-self.slicing_data["layer_height"], self.slicing_data["DPI"],
-                                                             self.slicing_data["layer_height"])
-                        via_circuit_layer = via.generate_via_circuit_layer(self.slicing_data["DPI"])
+                    via_start_row = clip_start_row - start_row #The indices for the via structure also needs to be clipped
+                    via_start_col = clip_start_col - start_col
+                    via_end_row = via_start_row + (clip_end_row - clip_start_row)
+                    via_end_col = via_start_col + (clip_end_col - clip_start_col)
 
-                        for j in range(0,via_fill_arr.shape[2]):
+                    #layer_array[clip_start_row:clip_end_row, clip_start_col:clip_end_col] = \
+                     #   via_layer[via_start_row:via_end_row, via_start_col:via_end_col].astype(np.uint8) #Place the via structure in the layer array
+                    np.copyto(layer_array[clip_start_row:clip_end_row, clip_start_col:clip_end_col], via_layer[via_start_row:via_end_row, via_start_col:via_end_col],
+                              where=(via_layer[via_start_row:via_end_row, via_start_col:via_end_col]==0)) #Place the via structure in the layer array, but only the negative volume
+
+                    if(via.new_step_flag): #For stepped vias, check if we have reached a new step
+                        #via_fill_arr = via.generate_via_fill(z_level-self.slicing_data["layer_height"], self.slicing_data["DPI"],
+                        #                                     self.slicing_data["layer_height"]) #generate the fillup layers to fil the new step
+                        via_circuit_layer = via.generate_via_circuit_layer(self.slicing_data["DPI"]) #Generate the traces for the new step
+#marker
+                        via_fill_layer_count = int(via.step_height / self.slicing_data["layer_height"])
+                        for j in range(0,via_fill_layer_count): #Loop through the fillup layers to render or export them
                             print(f"Via layer: {j}")
-                            via_fill_layer_arr = np.zeros(layer_array.shape)
+                            via_fill_layer_arr = np.zeros(layer_array.shape) #Generate a new layer the size of the full layer array
 
-                            via_fill_layer_arr[via_pos[0]-via_width:via_pos[0]-via_width+via_layer.shape[0],via_pos[1]-via_length:via_pos[1]-via_length+via_layer.shape[1]] = via_fill_arr[:,:,j]
 
-                            if(not export):
-                                via_fill_layer = Sliced_layer((2*via_fill_layer_arr).astype(np.uint8),z_level-self.slicing_data["layer_height"]*(via_fill_arr.shape[2]-j-1),self.slicing_data["layer_height"],self.slicing_data["sub_renders"]
+                            via_fill_layer = via.generate_via_fill_layer(z_level-self.slicing_data["layer_height"]*(via_fill_layer_count-j-1), self.slicing_data["DPI"],
+                                                             self.slicing_data["layer_height"])
+                            print(via_fill_layer.shape)
+                            #via_fill_layer_arr[clip_start_row:clip_end_row, clip_start_col:clip_end_col] = \
+                            #    via_fill_arr[via_start_row:via_end_row, via_start_col:via_end_col,j]# Place the fillup structure in the new layer array
+
+                            via_fill_layer_arr[clip_start_row:clip_end_row, clip_start_col:clip_end_col] = \
+                                via_fill_layer[via_start_row:via_end_row, via_start_col:via_end_col]# Place the fillup structure in the new layer array
+
+
+                            if(not export): #Render the fillup layers
+                                via_fill_layer = Sliced_layer((2*via_fill_layer_arr).astype(np.uint8),z_level-self.slicing_data["layer_height"]*(via_fill_layer_count-j-1),self.slicing_data["layer_height"],self.slicing_data["sub_renders"]
                                          ,self.slicing_data["colors"],dims=(self.dims_extended[0],self.dims_extended[2],self.dims_extended[1]),type="struc",print_level=z_level+self.slicing_data["layer_height"])
                                 self.layers.append(via_fill_layer)
+                        via.new_step_flag = False
+                        via_fill_top_layer = via_fill_layer_arr #Store that there is a via fillup at this layer, this is needed so we know we can place a circuit layer over this fillup later
 
-                        via_fill_top_layer = via_fill_layer_arr
+                        #To ensure that the circuit on the via is not segmented vertically (when other circuit layers are present in the vertical span of the via),
+                        #we make a buffer were the specific via circuit is stored. Later on, in the circuit slicing functions, we ensure that this buffer is exported without being segmented
+                        if(circuit_via_layer_buffer is None): circuit_via_layer_buffer = np.zeros(resolution) #Make a layer for the circuit layer that is placed on the step
+                        circuit_via_layer_buffer[clip_start_row:clip_end_row, clip_start_col:clip_end_col] = \
+                            via_circuit_layer[via_start_row:via_end_row, via_start_col:via_end_col].astype(np.uint8)
+                        #Place the via circuit in the buffer
 
+                        circuit_layer[clip_start_row:clip_end_row, clip_start_col:clip_end_col] = \
+                            via_circuit_layer[via_start_row:via_end_row, via_start_col:via_end_col].astype(np.uint8)
+                        #Also store it in the regular circuit layer
 
+                        self.slicing_data["circuit_layer_index"] = self.slicing_data["traces_print_height"]/self.slicing_data["layer_height"] #Store that we added to the circuit layer buffer here, this ensures that the circuit layer buffer is printed at this layer
 
-                        circuit_via_layer_buffer = np.zeros(resolution)
-                        circuit_via_layer_buffer[via_pos[0] - via_width:via_pos[0] - via_width + via_layer.shape[0],
-                        via_pos[1] - via_length:via_pos[1] - via_length + via_layer.shape[1]] = (
-                            via_circuit_layer).astype(
-                            np.uint8)  # force it onto a new (temporary) buffer
-
-                        circuit_layer[via_pos[0] - via_width:via_pos[0] - via_width + via_layer.shape[0],
-                        via_pos[1] - via_length:via_pos[1] - via_length + via_layer.shape[1]] = (
-                            via_circuit_layer).astype(
-                            np.uint8)
-                        #circuit_layer = np.logical_or(via_circuit_layer, circuit_layer).astype(np.uint8)
-                        self.slicing_data["circuit_layer_index"] = self.slicing_data["traces_print_height"]/self.slicing_data["layer_height"]
-
-            for component in component_buffer:
-                if(not component.slicing_activated):
-                    if(z_level<=component.actual_z_level  and layer_array[int(component.position[0] * resolution[0]),int(component.position[1] * resolution[1])] ):
-                        component.slicing_activated = True
-                        component.actual_z_level = z_level
-                        if (export == False and self.slicing_data["render_components"]):
+            #This section loops through all components and checks if they are present in the current layer
+            for component in component_buffer: #loop through all components
+                if(not component.slicing_activated): #Check if they are not yet activated
+                    if((component.buried and z_level<=component.actual_z_level  and layer_array[int(component.position[0] * resolution[0]),int(component.position[1] * resolution[1])]) or \
+                            (not component.buried and z_level<=component.actual_z_level + component.height)): #Check of they are present at or below the current height, and if there is actually material present here to place them on
+                        component.slicing_activated = True #activate the component, this is just a flag so that we only the the actual height once
+                        component.actual_z_level = z_level #set the actual z level, this can differ from the initial component z level if it is placed floating in the air
+                        if(not component.buried): component.actual_z_level = np.max((component.actual_z_level,component.parent_z_level+component.height))
+                        if (export == False and self.slicing_data["render_components"]): #render the component if we're not in export mode
                             self.generate_component_layers(component)
 
-
-            for component in component_buffer:
-                if(z_level<=component.actual_z_level and z_level>= (component.actual_z_level - component.height)):
-                    component_current_z_level = z_level - (component.actual_z_level - component.height)
+            for component in component_buffer: #Loop again through all components, here we generate the component cavity
+                if(z_level<=(component.actual_z_level) and z_level>= (component.actual_z_level - component.height)): #Check if the component intersects the current layer
+                    component_current_z_level = z_level - (component.actual_z_level - component.height) #Calculate at which z level in the component we are, in the coordinate system of the component
                     component_layer_array = component.generate_hole_layer_array(component_current_z_level,(self.dims[0], self.dims[2], self.dims[1]),
-                                                                           resolution)
-                    layer_array = np.logical_and(np.logical_xor(layer_array,component_layer_array),layer_array)
+                                                                           resolution) #Generate the cavity structure
+                    layer_array = np.logical_and(np.logical_xor(layer_array,component_layer_array),layer_array) #Place the cavity in the layer array
 
+            #All the operations on the layer array are now performed, so we can either render the layer or export it
             if(export==False):
                 layer = Sliced_layer(layer_array.astype(np.uint8),z_level,self.slicing_data["layer_height"],self.slicing_data["sub_renders"]
                                      ,self.slicing_data["colors"],dims=(self.dims_extended[0],self.dims_extended[2],self.dims_extended[1]),type="struc")
@@ -405,10 +483,11 @@ class Object():
             else:
                 self.export_layer(str(export) + f"/struc_{i}.png",layer_array,UV_offset=self.slicing_data["printhead_UV_offset"])
 
+            #The following section concerns the slicing of circuit layers
             if (self.circuit.circuit_layers and self.slicing_data["slice_traces"]): #only do the following stuff if there actually are circuit layers and if we have to slice them
                 self.slicing_data["circuit_layer_index"] += 1 #keep track that we moved down a layer
 
-                for circuit_layer_object in self.circuit.circuit_layers:
+                for circuit_layer_object in self.circuit.circuit_layers: #Loop through all circuit layers
                     if ((circuit_layer_object.z_height > z_level  and circuit_layer_object.z_height <= z_level+ self.slicing_data["layer_height"]) or (i==layer_count-1 and circuit_layer_object.z_height > z_level)): #check if there is a circuit layer here or if we are at the ground
                         if(via_fill_top_layer is not None):
                             via_fill_top_layer_circuit_arr = np.logical_and(via_fill_top_layer,circuit_layer_object.layer_array)
@@ -428,8 +507,11 @@ class Object():
                     self.slicing_data["circuit_layer_index"] = 0
                     self.slicing_data["trace_layer"] += 1
                     #self.slicing_data["colors"][self.slicing_data['trace_layer'] + 2] = (255, 150 + self.slicing_data["trace_layer"] * 60, 150+ self.slicing_data["trace_layer"] * 180, 150+ self.slicing_data["trace_layer"] * 100)
-                    self.slicing_data["colors"][self.slicing_data['trace_layer'] + 2] = (
-                    255, 150, 150, 150)
+                    self.slicing_data["colors"][self.slicing_data['trace_layer'] + 2] = self.slicing_data["silver_color"]
+                    # if(self.slicing_data['trace_layer'] ==2): self.slicing_data["colors"][self.slicing_data['trace_layer'] + 2] = (255, 153, 255, 85)
+                    # if (self.slicing_data['trace_layer'] == 3): self.slicing_data["colors"][
+                    #     self.slicing_data['trace_layer'] + 2] = (255, 255, 85, 85) #render_edit
+
                     if(export):
                         self.export_layer(str(export) + f"/circ_{circuit_layer_buffer_layer}.png", circuit_layer_buffer)
                     circuit_layer_buffer = np.zeros((resolution[0],resolution[1]), dtype=np.uint8)
@@ -485,12 +567,33 @@ class Object():
         img_data.save(export_name)
 
     def generate_support_layer(self,layer_array):
+        height_limit = 1000000
+
         if(self.slicing_data["support_memory"] is None):
-            self.slicing_data["support_memory"] = layer_array
+            self.slicing_data["support_memory"] = layer_array.astype(np.int64)
             return np.zeros((layer_array.shape[0],layer_array.shape[1]))
+
+
+        new_material = np.logical_and(np.logical_not(self.slicing_data["support_memory"]),layer_array)
+        #new_material_dilated = ndimage.binary_dilation(new_material,iterations = 2)
+        #new_material_dilated = np.logical_and(np.logical_not(self.slicing_data["support_memory"]),new_material_dilated)
+
+
+        self.slicing_data["support_memory"][self.slicing_data["support_memory"] != 0] += 1
+        np.copyto(self.slicing_data["support_memory"],new_material,where=(new_material==True))
+
+
+        mask = (self.slicing_data["support_memory"] == height_limit)
+
+        # Step 2: Dilate the mask
+        inflated_mask = ndimage.binary_dilation(mask)
+        np.copyto(self.slicing_data["support_memory"], inflated_mask, where=(self.slicing_data["support_memory"] == 0))
+
+        #support_layer = (self.slicing_data["support_memory"]!=0).astype(np.uint8)
+        #print(self.slicing_data["support_memory"])
         support_layer =  np.logical_xor(self.slicing_data["support_memory"],layer_array) * np.logical_not(layer_array)
-        self.slicing_data["support_memory"] = np.logical_or(self.slicing_data["support_memory"],support_layer)
-        self.slicing_data["support_memory"] = np.logical_or(self.slicing_data["support_memory"], layer_array)
+        #self.slicing_data["support_memory"] = np.logical_or(self.slicing_data["support_memory"],support_layer)
+        #self.slicing_data["support_memory"] = np.logical_or(self.slicing_data["support_memory"], layer_array)
         return support_layer.astype(np.uint8)
 
     def generate_support_structural_mask(self,shape):
@@ -499,6 +602,7 @@ class Object():
         return mask
 
     def generate_component_layers(self,component):
+        if(not component.component_rules[0]): return
         layers = int(np.round(component.height/self.slicing_data["layer_height"]))
         for i in range(0,layers):
             layer_array = component.generate_component_layer_array((self.dims[0],self.dims[2],self.dims[1]),self.slicing_data["resolution"])
@@ -518,12 +622,19 @@ class Object():
                          self.offsets[2]))
         if(self.render_mode=="stl" and self.visible):
             pg.gl.glEnable(pg.gl.GL_DEPTH_TEST)
-            mono_shader_program['color_in'] = (self.slicing_data["base_color"][1]/255.0,self.slicing_data["base_color"][2]/255.0,self.slicing_data["base_color"][3]/255.0)
+            mono_shader_program['color_in'] = (self.slicing_data["base_color"][0]/255.0,self.slicing_data["base_color"][1]/255.0,self.slicing_data["base_color"][2]/255.0)
             plate_batch.draw()
             self.batch_stl.draw()
+
+            #The following enables wireframe rendering:
+            #mono_shader_program['color_in'] = (0.1,0.1,0.1)
+            #pg.gl.glPolygonMode(pg.gl.GL_FRONT_AND_BACK, pg.gl.GL_LINE)
+            #self.batch_stl.draw()
+            #pg.gl.glPolygonMode(pg.gl.GL_FRONT_AND_BACK, pg.gl.GL_FILL)
+
             mono_shader_program['color_in'] = (
-                self.slicing_data["secondary_color"][1] / 255.0, self.slicing_data["secondary_color"][2] / 255.0,
-                self.slicing_data["secondary_color"][3] / 255.0)
+                self.slicing_data["secondary_color"][0] / 255.0, self.slicing_data["secondary_color"][1] / 255.0,
+                self.slicing_data["secondary_color"][2] / 255.0)
             for batch in self.secondary_stl_batches:
                 batch.draw()
             pg.gl.glDisable(pg.gl.GL_DEPTH_TEST)
@@ -541,7 +652,7 @@ class Object():
                             if(circuit_layer.z_height>layer.z_level-layer.layer_height and circuit_layer.z_height<=layer.z_level):
                                 circuit_layer.draw()
 
-                if(not self.slicing_data["slice_traces"]):
+                if(not self.slicing_data["slice_traces"]): #render_edit
                     for circuit_layer in self.circuit.circuit_layers:
                         if(circuit_layer.z_height>=self.dims[1][1]-self.dims[1][0]):
                             circuit_layer.draw()
@@ -600,7 +711,8 @@ class Sliced_layer():
         for i in uniques:
             layer_mask = (self.data == i)
             layer_texture += (np.kron(layer_mask.T, np.array(self.colors[i - 1], dtype=np.uint8))).flatten()
-        image.set_data("ARGB", self.data.shape[0] * 4, layer_texture)
+        image.set_data("RGBA", self.data.shape[0] * 4, layer_texture.tobytes())
+
         return image.get_texture()
 
     def create_quad(self,height, group, batch,offset=(0,0,0),scale=1,dims=((1,-1),(1,-1),(1,-1))):
@@ -673,8 +785,8 @@ class Via():
                 arr_size = int(self.width * (DPI / 25.4)) #determine the size of the structure in pixels
                 z = (z_level - self.bottom_height) / (self.top_height - self.bottom_height) #calculate the height of the current layer in mm, 0 is the floor of the via
                 z_normalized = ((z_level - self.bottom_height)-self.step_height)/(self.step_height)
-                hole_top = 0.31
-                hole_bottom = 0.16
+                hole_top = 0.41
+                hole_bottom = 0.26
                 #print(z_normalized)
                 if(not self.current_direction):
                     self.current_direction = True
@@ -703,12 +815,12 @@ class Via():
             rule = rule.replace('y', f"(mesh[1]/{arr_size})")
             arr *= eval(rule)
         elif(self.type=="dimple"):
-            rule = f"np.sqrt(x**2 + y**2) < 0.30 "
+            rule = f"np.sqrt(x**2 + y**2) < 0.40 "
             rule = rule.replace('x', f"(mesh[0]/{arr_size})")
             rule = rule.replace('y', f"(mesh[1]/{arr_size})")
             arr *= eval(rule)
         return arr
-
+#marker
     def generate_via_fill(self,z_level,DPI,layer_height):
             if(self.new_step_flag):
                 if (self.type == "stairwell"):
@@ -736,12 +848,51 @@ class Via():
                     arr_height = int(self.step_height / layer_height)
                     mesh = np.mgrid[-0.5 * arr_size:0.5 * arr_size, -0.5 * arr_size:0.5 * arr_size,
                            arr_height:2 * arr_height]
-                    rule = f"np.sqrt(x**2 + y**2) >= 0.19 + (1 + z) * (0.41 - 0.19)"
+                    rule = f"0"
 
                     arr = np.ones((arr_size, arr_size,arr_height), dtype=np.uint8)
                     rule = rule.replace('x', f"(mesh[0]/{arr_size})")
                     rule = rule.replace('y', f"(mesh[1]/{arr_size})")
                     rule = rule.replace('z', f"(mesh[2]/{2*arr_height})")
+                    arr *= eval(rule)
+                    return arr
+            return
+
+    def generate_via_fill_layer(self,z_level,DPI,layer_height):
+            if(self.new_step_flag):
+                if (self.type == "stairwell"):
+                    #self.new_step_flag = False
+                    arr_size = int(self.width * (DPI / 25.4))
+                    arr_height = int(self.step_height / layer_height)
+                    current_step = np.floor(((z_level - self.bottom_height) / self.height) * self.step_count)  # decide which stair of the staircase we're on, starting with 0
+                    z_normalized = ((z_level - self.bottom_height) - np.floor(
+                        current_step / 2) * 2 * self.step_height) / (2 * self.step_height)
+                    if (current_step % 2 == 0):  # create the function for the stair in the right direction, in normalized coordinates
+                        rule = f"(x-0.1)>=-z"
+                        mesh = np.mgrid[-0.5 * arr_size:0.5 * arr_size, -0.5 * arr_size:0.5 * arr_size]
+
+                    else:
+                        rule = f"(x-0.1)<=z-1"
+                        mesh = np.mgrid[-0.5 * arr_size:0.5 * arr_size, -0.5 * arr_size:0.5 * arr_size]
+                    #rule = f"np.sqrt(x**2 + y**2) < {0.5 * DPI / 25.4}"
+                    arr = np.ones((arr_size, arr_size), dtype=np.uint8)
+                    rule = rule.replace('x', f"(mesh[0]/{arr_size})")
+                    rule = rule.replace('y', f"(mesh[1]/{arr_size})")
+                    rule = rule.replace('z', f"{z_normalized}")
+                    arr *= eval(rule)
+                    return arr
+                elif (self.type == "dimple"):
+                    #self.new_step_flag = False
+                    arr_size = int(self.width * (DPI / 25.4))
+                    arr_height = int(self.step_height / layer_height)
+                    z_normalized = ((z_level - self.bottom_height) - self.step_height) / (self.step_height)
+                    mesh = np.mgrid[-0.5 * arr_size:0.5 * arr_size, -0.5 * arr_size:0.5 * arr_size]
+                    rule = f"0"
+
+                    arr = np.ones((arr_size, arr_size), dtype=np.uint8)
+                    rule = rule.replace('x', f"(mesh[0]/{arr_size})")
+                    rule = rule.replace('y', f"(mesh[1]/{arr_size})")
+                    rule = rule.replace('z', f"f{z_normalized}")
                     arr *= eval(rule)
                     return arr
             return
@@ -829,7 +980,7 @@ class Circuit_layer():
 
         if(render):
             #self.layer = Sliced_layer(self.layer_array,self.z_height,0.01,5,[(255,150,150,150)],offset=(self.offset[0],self.offset[2],0),dims=self.dims)
-            self.layer = Sliced_layer(self.layer_array, self.z_height, 0.01, 5, [(255, 150, 150, 150),(255, 255, 150, 150)], dims=self.dims)
+            self.layer = Sliced_layer(self.layer_array, self.z_height, 0.01, 5, [self.sliced_model.slicing_data["silver_color"],(255, 150, 150,255)], dims=self.dims) #render_edit
         return
 
     def function_layer_array(self, rules,resolution):
@@ -1027,7 +1178,7 @@ class Circuit():
         self.circuit_layers = []
         self.vias = []
 
-        self.component_list = [components.Component_smd_0805,components.Component_smd_0805_larger,components.Component_smd_0805_largest,components.Component_smd_0805_mega]
+        self.component_list = [components.Component_smd_0805_buried,components.Component_smd_0805_non_buried,components.Component_ATtiny85,components.Component_pad_4x4_open]
     def create_circuit_layer(self,editor=True):
         if(editor):
             global program_state
@@ -1252,6 +1403,7 @@ def load_plate_model():
     plate_batch = pg.graphics.Batch()
     plate_RenderGroup = RenderGroupTextured(plate_tex, texture_shader_program,True)
     vertices = [100,0,100,-100,0,100,100,0,-100,-100,0,-100]
+    #vertices = [50, 0, 50, -50, 0, 50, 50, 0, -50, -50, 0, -50] #render edit
     indices = [1, 2, 0, 1, 3, 2]
     vertex_list = texture_shader_program.vertex_list_indexed(len(vertices) // 3, pg.gl.GL_TRIANGLES, indices, plate_batch, plate_RenderGroup,
                                              position=('f', vertices),
@@ -1290,7 +1442,12 @@ def render_slice():
             model.slicing_data["support_spacing"] = int(menus_setup.settings["support_spacing"]["value"])
             model.slicing_data["traces_print_height"] = float(menus_setup.settings["traces_print_height"]["value"])
             model.slicing_data["trace_width"] = float(menus_setup.settings["trace_width"]["value"])
-            model.slicing_data["secondary_color"] = (int(menus_setup.settings["sec_struc_transparancy"]["value"]), 255, 200, 0)
+            model.slicing_data["secondary_color"] = (model.slicing_data["secondary_color"][0],
+            model.slicing_data["secondary_color"][1], model.slicing_data["secondary_color"][2],int(menus_setup.settings["sec_struc_transparancy"]["value"]))
+
+           # model.slicing_data["base_color"] = (model.slicing_data["base_color"][0],
+            #model.slicing_data["base_color"][1], model.slicing_data["base_color"][2],int(menus_setup.settings["sec_struc_transparancy"]["value"])) #render edit
+
             model.slice(export=False)
         return
 
@@ -1426,7 +1583,7 @@ def add_component():
         enter_angle.insert(0, 0)
 
         for i, component in enumerate(model.circuit.component_list):
-            Button(base, text=f"{component.display_name()}", width=20,
+            Button(base, text=f"{component.display_name()}", width=40,
                    command=partial(activate_component, component, base, enter_angle)).place(x=10,
                                                                                                              y=i * field_spacing + field_y0)
         base.mainloop()
@@ -1442,7 +1599,7 @@ def activate_component(component,base,angle):
     tracer_state = "component"
     dummy_component = component((0.5,0.5),active_circuit_layer.active_component_angle,0)
     dummy_component_pad_layer_array = dummy_component.generate_pad_layer_array(active_circuit_layer.dims,active_circuit_layer.resolution)
-    dummy_component_pad_layer = Sliced_layer(dummy_component_pad_layer_array.astype(np.uint8),0,1,1,[(180,92,214,155)],dims=active_circuit_layer.dims)
+    dummy_component_pad_layer = Sliced_layer(dummy_component_pad_layer_array.astype(np.uint8),0,1,1,[(92,214,155,180)],dims=active_circuit_layer.dims)
     tracer_preview_img = pg.sprite.Sprite(dummy_component_pad_layer.tex.get_transform(flip_x=True), 0, 0, batch=ui_tracer_batch)
 
 

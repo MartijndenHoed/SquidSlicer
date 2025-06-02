@@ -83,19 +83,6 @@ def slice_model_3d(filename,resolution_x,layer_height):
                 layer_array[ x,int(edge_pixels[i*2]) : int((edge_pixels[i*2+1])),layer] = 1#layer_z
     return layer_array, ((model_min_x,model_max_x),(model_min_y,model_max_y),(model_min_z,model_max_z))
 
-def get_model_dims(mesh):
-    model_max_x = np.max((np.max(mesh.v0[:, 0]), np.max(mesh.v1[:, 0]), np.max(mesh.v2[:, 0])))
-    model_min_x = np.min((np.min(mesh.v0[:, 0]), np.min(mesh.v1[:, 0]), np.min(mesh.v2[:, 0])))
-    model_size_x = model_max_x - model_min_x
-
-    model_max_y = np.max((np.max(mesh.v0[:, 1]), np.max(mesh.v1[:, 1]), np.max(mesh.v2[:, 1])))
-    model_min_y = np.min((np.min(mesh.v0[:, 1]), np.min(mesh.v1[:, 1]), np.min(mesh.v2[:, 1])))
-    model_size_y = model_max_y - model_min_y
-
-    model_max_z = np.max((np.max(mesh.v0[:, 2]), np.max(mesh.v1[:, 2]), np.max(mesh.v2[:, 2])))
-    model_min_z = np.min((np.min(mesh.v0[:, 2]), np.min(mesh.v1[:, 2]), np.min(mesh.v2[:, 2])))
-    model_size_z = model_max_z - model_min_z
-    return ((model_min_x,model_max_x),(model_min_y,model_max_y),(model_min_z,model_max_z))
 
 
 def slice_model_2d(mesh,layer_z,DPI):
@@ -168,8 +155,43 @@ def slice_model_2d(mesh,layer_z,DPI):
         layer_vectors = intersected_lines[:,2:4]-intersected_lines[:,0:2]
         layer_vector_origins = intersected_lines[:,0:2]
         intersect_points_1d = np.atleast_2d((line_x-layer_vector_origins[:,0])/layer_vectors[:,0]).T * layer_vectors + layer_vector_origins
-        edge_pixels = np.round( (intersect_points_1d[:,1]-model_min_y) / mm_per_pixel  )
+        # edge_pixels = np.round( (intersect_points_1d[:,1]-model_min_y) / mm_per_pixel  )
+        # edge_pixels = np.sort(edge_pixels)
+        # for i in range(0,int(len(edge_pixels)/2)):
+        #     layer_array[ x,int(edge_pixels[i*2]) : int((edge_pixels[i*2+1]))] = 1#layer_z
+        # edge_pixels = np.round((intersect_points_1d[:, 1] - model_min_y) / mm_per_pixel)
+        edge_pixels = (intersect_points_1d[:, 1] - model_min_y) / mm_per_pixel
         edge_pixels = np.sort(edge_pixels)
-        for i in range(0,int(len(edge_pixels)/2)):
-            layer_array[ x,int(edge_pixels[i*2]) : int((edge_pixels[i*2+1]))] = 1#layer_z
+        for i in range(0, int(len(edge_pixels) / 2)):
+            layer_array[x, np.floor(edge_pixels[i * 2]).astype('int'): np.ceil(edge_pixels[i * 2 + 1]).astype('int')] = 1  # layer_z
+
+
     return layer_array
+
+
+
+def get_model_dims_with_support(mesh,support_slope):
+    model_max_y = np.max((np.max(mesh.v0[:, 1]), np.max(mesh.v1[:, 1]), np.max(mesh.v2[:, 1])))
+    model_min_y = np.min((np.min(mesh.v0[:, 1]), np.min(mesh.v1[:, 1]), np.min(mesh.v2[:, 1])))
+
+    model_max_x = np.max( (np.max(mesh.v0[:, 0]    +  (mesh.v0[:, 1]-model_min_y)/support_slope  ) , np.max(mesh.v0[:, 0]    -  (mesh.v0[:, 1]-model_min_y)/support_slope  )   )  )
+    model_min_x = np.min( ( np.min(mesh.v0[:, 0]    +  (mesh.v0[:, 1]-model_min_y)/support_slope  ) , np.min(mesh.v0[:, 0]    - (mesh.v0[:, 1]-model_min_y)/support_slope  )  )   )
+
+    model_max_z = np.max( ( np.max(mesh.v0[:, 2]    +  (mesh.v0[:, 1]-model_min_y)/support_slope  ) , np.max(mesh.v0[:, 2]    - (mesh.v0[:, 1]-model_min_y)/support_slope  )  )   )
+    model_min_z = np.min( ( np.min(mesh.v0[:, 2]    +  (mesh.v0[:, 1]-model_min_y)/support_slope  ) , np.min(mesh.v0[:, 2]    -  (mesh.v0[:, 1]-model_min_y)/support_slope  )   )  )
+
+    return ((model_min_x,model_max_x),(model_min_y,model_max_y),(model_min_z,model_max_z))
+
+def get_model_dims(mesh):
+    model_max_x = np.max((np.max(mesh.v0[:, 0]), np.max(mesh.v1[:, 0]), np.max(mesh.v2[:, 0])))
+    model_min_x = np.min((np.min(mesh.v0[:, 0]), np.min(mesh.v1[:, 0]), np.min(mesh.v2[:, 0])))
+    model_size_x = model_max_x - model_min_x
+
+    model_max_y = np.max((np.max(mesh.v0[:, 1]), np.max(mesh.v1[:, 1]), np.max(mesh.v2[:, 1])))
+    model_min_y = np.min((np.min(mesh.v0[:, 1]), np.min(mesh.v1[:, 1]), np.min(mesh.v2[:, 1])))
+    model_size_y = model_max_y - model_min_y
+
+    model_max_z = np.max((np.max(mesh.v0[:, 2]), np.max(mesh.v1[:, 2]), np.max(mesh.v2[:, 2])))
+    model_min_z = np.min((np.min(mesh.v0[:, 2]), np.min(mesh.v1[:, 2]), np.min(mesh.v2[:, 2])))
+    model_size_z = model_max_z - model_min_z
+    return ((model_min_x,model_max_x),(model_min_y,model_max_y),(model_min_z,model_max_z))
