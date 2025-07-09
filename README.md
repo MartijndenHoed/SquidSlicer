@@ -5,4 +5,4 @@ planar, but rather conform to the shape of the 3D model on which they are placed
 The slicer predicts how circuit layers are laid down on non-planar models, and determines the order in which the layers can be printed succesfully.
 
 This slicer was developed by Martijn den Hoed as part of a Master's thesis. \
-For more info, see:
+For more info, see: https://resolver.tudelft.nl/uuid:88fc9a7e-9c2f-48b0-b6fc-fa4b310dc2b0 
